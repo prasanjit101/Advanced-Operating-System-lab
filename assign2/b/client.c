@@ -1,75 +1,76 @@
-// client to send file request to server
 #include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#define SIZE 1024
 
-void send_file_data(FILE *fp, int sockfd, struct sockaddr_in addr)
+#define MAX_RECV_BUF 1600
+
+int main(int argc, char *argv[])
 {
-    int n;
-    char buffer[SIZE];
 
-    // Sending the data
-    while (fgets(buffer, SIZE, fp) != NULL)
+    int sockfd;
+    struct sockaddr_in serv_addr;
+    char *file_name;
+    int serv_len = sizeof(serv_addr);
+    if (argc < 2)
     {
-        printf("[SENDING] Data: %s", buffer);
+        printf("Format : ./client filename_to_receive downloaded_file_name\n");
+        exit(1);
+    }
+    file_name = argv[1];
 
-        n = sendto(sockfd, buffer, SIZE, 0, (struct sockaddr *)&addr, sizeof(addr));
-        if (n == -1)
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd == -1)
+    {
+        printf("\nerror calling socket\n");
+        exit(1);
+    }
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    serv_addr.sin_port = htons(8000);
+
+    ssize_t recv_bytes;
+    char recv_buff[MAX_RECV_BUF];
+    printf("\n\nConnecting to the server...\n");
+
+    sendto(sockfd, file_name, strlen(file_name), 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+
+    int ptr;
+    char *newfile = argv[2];
+    mode_t mode = S_IRWXU | S_IRWXG | S_IRWXO;
+
+    recv_bytes = recvfrom(sockfd, (char *)recv_buff, sizeof(recv_buff), 0, (struct sockaddr *)&serv_addr, (socklen_t *)&serv_len);
+    if (recv_bytes <= 0)
+    {
+        printf("\n Error in receving \n");
+        exit(1);
+    }
+    else
+    {
+        if ((ptr = open(newfile, O_WRONLY | O_CREAT, 0644)) < 0)
         {
-            perror("[ERROR] sending data to the server.");
+            printf("Error in writing to file\n");
+        }
+        else if (strncmp(recv_buff, "INVALID", 7) == 0)
+        {
+            printf("File not found\n\n\n");
             exit(1);
         }
-        bzero(buffer, SIZE);
+        else
+        {
+            open(newfile, O_RDWR | O_CREAT | O_EXCL | O_APPEND, mode);
+            write(ptr, recv_buff, recv_bytes);
+            printf("%s\n", recv_buff);
+            printf("\nNew file '%s' has been created and the contents from server file have been copied to it.\n\n", newfile);
+        }
     }
-
-    // Sending the 'END'
-    strcpy(buffer, "END");
-    sendto(sockfd, buffer, SIZE, 0, (struct sockaddr *)&addr, sizeof(addr));
-
-    fclose(fp);
-}
-
-int main(void)
-{
-
-    // Defining the IP and Port
-    char *ip = "127.0.0.1";
-    const int port = 8080;
-
-    // Defining variables
-    int server_sockfd;
-    struct sockaddr_in server_addr;
-    char *filename = "client.txt";
-    FILE *fp = fopen(filename, "r");
-
-    // Creating a UDP socket
-    server_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (server_sockfd < 0)
-    {
-        perror("[ERROR] socket error");
-        exit(1);
-    }
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = port;
-    server_addr.sin_addr.s_addr = inet_addr(ip);
-
-    // Reading the text file
-    if (fp == NULL)
-    {
-        perror("[ERROR] reading the file");
-        exit(1);
-    }
-
-    // Sending the file data to the server
-    send_file_data(fp, server_sockfd, server_addr);
-
-    printf("[SUCCESS] Data transfer complete.\n");
-    printf("[CLOSING] Disconnecting from the server.\n");
-
-    close(server_sockfd);
-
+    close(sockfd);
     return 0;
 }

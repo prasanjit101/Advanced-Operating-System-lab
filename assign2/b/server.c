@@ -1,79 +1,84 @@
 #include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <signal.h>
+#include <unistd.h>
+#include <pthread.h>
 #include <stdlib.h>
-#include <string.h>
+#include <fcntl.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <string.h>
 
-#define SIZE 1024
+#define MAX_SEND_BUF 1600
 
-void write_file(int sockfd, struct sockaddr_in addr)
+char msg[1000];
+long data_len;
+int sockfd;
+struct sockaddr_in serv_addr, client_address;
+int cli_len = sizeof(client_address);
+char *newfile;
+
+void con_handler(int sockfd)
 {
-
-    char *filename = "server.txt";
-    int n;
-    char buffer[SIZE];
-    socklen_t addr_size;
-
-    // Creating a file.
-    FILE *fp = fp = fopen(filename, "w");
-
-    // Receiving the data and writing it into the file.
-    while (1)
+    int fd;
+    mode_t mode = S_IRWXU | S_IRWXG | S_IRWXO;
+    char send_buff[MAX_SEND_BUF];
+    if ((fd = open(newfile, O_RDONLY, 0644)) < 0)
     {
-        addr_size = sizeof(addr);
-        n = recvfrom(sockfd, buffer, SIZE, 0, (struct sockaddr *)&addr, &addr_size);
-
-        if (strcmp(buffer, "END") == 0)
-        {
-            break;
-        }
-
-        printf("[RECEVING] Data: %s", buffer);
-        fprintf(fp, "%s", buffer);
-        bzero(buffer, SIZE);
+        printf("Error in opening file\n");
+        exit(1);
     }
-
-    fclose(fp);
+    else
+    {
+        int bytes_read;
+        while ((bytes_read = read(fd, send_buff, MAX_SEND_BUF)) > 0)
+        {
+            sendto(sockfd, send_buff, bytes_read, 0, (struct sockaddr *)&client_address, sizeof(client_address));
+        }
+        printf("File sent successfully from thread id %ld\n", pthread_self());
+        close(fd);
+    }
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-
-    // Defining the IP and Port
-    char *ip = "127.0.0.1";
-    const int port = 8080;
-
-    // Defining variables
-    int server_sockfd;
-    struct sockaddr_in server_addr, client_addr;
-    char buffer[SIZE];
-    int e;
-
-    // Creating a UDP socket
-    server_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (server_sockfd < 0)
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd == -1)
     {
-        perror("[ERROR] socket error");
-        exit(1);
-    }
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = port;
-    server_addr.sin_addr.s_addr = inet_addr(ip);
-
-    e = bind(server_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    if (e < 0)
-    {
-        perror("[ERROR] bind error");
+        printf("Error calling Socket");
         exit(1);
     }
 
-    printf("[STARTING] UDP File Server started. \n");
-    write_file(server_sockfd, client_addr);
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    serv_addr.sin_port = htons(8000);
 
-    printf("[SUCCESS] Data transfer complete.\n");
-    printf("[CLOSING] Closing the server.\n");
+    if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    {
+        printf("error binding");
+        exit(1);
+    }
 
-    close(server_sockfd);
-
-    return 0;
+    while (1)
+    {
+        data_len = recvfrom(sockfd, (char *)msg, sizeof(msg), 0, (struct sockaddr *)&client_address, (socklen_t *)&cli_len);
+        newfile = msg;
+        if (data_len)
+        {
+            printf("\n\nClient connected to Multithread connectionless server\n");
+            printf("File name recieved: %s\n", msg);
+        }
+        pthread_t child;
+        if (pthread_create(&child, NULL, (void *)con_handler, (void *)(intptr_t)sockfd) < 0)
+        {
+            printf("Error creating thread\n");
+            exit(1);
+        }
+    }
 }
