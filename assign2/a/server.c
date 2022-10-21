@@ -26,9 +26,8 @@ void *thread_function(void *arg)
     if (n < 0)
         error("ERROR reading from socket");
     printf("Here is the message: %s \n", buffer);
-    // respond with the thread id
-    char *thread_id = (char *)malloc(256);
-    n = write(newsockfd, thread_id, strlen(thread_id));
+    sprintf(buffer, "Hi, responding with Thread %ld", pthread_self());
+    n = write(newsockfd, buffer, strlen(buffer));
     if (n < 0)
         error("ERROR writing to socket");
     close(newsockfd);
@@ -45,7 +44,7 @@ int main(int argc, char *argv[])
     int i = 0;
     if (argc < 2)
     {
-        fprintf(stderr, "ERROR, no port provided \n");
+        fprintf(stderr, "ERROR, no port provided \nFormat : ./server portno \n");
         exit(1);
     }
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
