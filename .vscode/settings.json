@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.svelte": "svelte",
+        "cstdlib": "cpp",
+        "typeinfo": "cpp"
+    }
+}
