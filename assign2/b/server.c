@@ -1,71 +1,79 @@
-// Implement a multithreaded server that can be used as a proxy server to access the proxy copy of two file1.txt, file2.txt
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <pthread.h>
+#include <arpa/inet.h>
 
-void error(const char *msg)
-{
-    perror(msg);
-    exit(1);
-}
+#define SIZE 1024
 
-void *thread_function(void *arg)
+void write_file(int sockfd, struct sockaddr_in addr)
 {
-    int newsockfd = *(int *)arg;
+
+    char *filename = "server.txt";
     int n;
-    char buffer[256];
-    bzero(buffer, 256);
-    n = read(newsockfd, buffer, 255);
-    if (n < 0)
-        error("ERROR reading from socket");
-    printf("Here is the message: %s \n", buffer);
-    n = write(newsockfd, "I got your message", 18);
-    if (n < 0)
-        error("ERROR writing to socket");
-    close(newsockfd);
-    pthread_exit(NULL);
-}
+    char buffer[SIZE];
+    socklen_t addr_size;
 
-int main(int argc, char *argv[])
-{
-    int sockfd, newsockfd, portno, clilen;
-    char buffer[256];
-    struct sockaddr_in serv_addr, cli_addr;
-    int n;
-    pthread_t thread[5];
-    int i = 0;
-    if (argc < 2)
-    {
-        fprintf(stderr, "ERROR, no port provided \n");
-        exit(1);
-    }
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
-        error("ERROR opening socket");
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-    portno = atoi(argv[1]);
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port = htons(portno);
-    if (bind(sockfd, (struct sockaddr *)&serv_addr,
-             sizeof(serv_addr)) < 0)
-        error("ERROR on binding");
-    listen(sockfd, 5);
-    clilen = sizeof(cli_addr);
+    // Creating a file.
+    FILE *fp = fp = fopen(filename, "w");
+
+    // Receiving the data and writing it into the file.
     while (1)
     {
-        newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
-        if (newsockfd < 0)
-            error("ERROR on accept");
-        pthread_create(&thread[i], NULL, thread_function, &newsockfd);
-        i++;
+        addr_size = sizeof(addr);
+        n = recvfrom(sockfd, buffer, SIZE, 0, (struct sockaddr *)&addr, &addr_size);
+
+        if (strcmp(buffer, "END") == 0)
+        {
+            break;
+        }
+
+        printf("[RECEVING] Data: %s", buffer);
+        fprintf(fp, "%s", buffer);
+        bzero(buffer, SIZE);
     }
-    close(sockfd);
+
+    fclose(fp);
+}
+
+int main()
+{
+
+    // Defining the IP and Port
+    char *ip = "127.0.0.1";
+    const int port = 8080;
+
+    // Defining variables
+    int server_sockfd;
+    struct sockaddr_in server_addr, client_addr;
+    char buffer[SIZE];
+    int e;
+
+    // Creating a UDP socket
+    server_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (server_sockfd < 0)
+    {
+        perror("[ERROR] socket error");
+        exit(1);
+    }
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = port;
+    server_addr.sin_addr.s_addr = inet_addr(ip);
+
+    e = bind(server_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    if (e < 0)
+    {
+        perror("[ERROR] bind error");
+        exit(1);
+    }
+
+    printf("[STARTING] UDP File Server started. \n");
+    write_file(server_sockfd, client_addr);
+
+    printf("[SUCCESS] Data transfer complete.\n");
+    printf("[CLOSING] Closing the server.\n");
+
+    close(server_sockfd);
+
     return 0;
 }

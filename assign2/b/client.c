@@ -1,59 +1,75 @@
+// client to send file request to server
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <pthread.h>
+#include <arpa/inet.h>
+#define SIZE 1024
 
-void error(const char *msg)
+void send_file_data(FILE *fp, int sockfd, struct sockaddr_in addr)
 {
-    perror(msg);
-    exit(1);
+    int n;
+    char buffer[SIZE];
+
+    // Sending the data
+    while (fgets(buffer, SIZE, fp) != NULL)
+    {
+        printf("[SENDING] Data: %s", buffer);
+
+        n = sendto(sockfd, buffer, SIZE, 0, (struct sockaddr *)&addr, sizeof(addr));
+        if (n == -1)
+        {
+            perror("[ERROR] sending data to the server.");
+            exit(1);
+        }
+        bzero(buffer, SIZE);
+    }
+
+    // Sending the 'END'
+    strcpy(buffer, "END");
+    sendto(sockfd, buffer, SIZE, 0, (struct sockaddr *)&addr, sizeof(addr));
+
+    fclose(fp);
 }
 
-// a client to send file request to server
-int main(int argc, char *argv[])
+int main(void)
 {
-    int sockfd, portno, n;
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
-    char buffer[256];
-    if (argc < 3)
+
+    // Defining the IP and Port
+    char *ip = "127.0.0.1";
+    const int port = 8080;
+
+    // Defining variables
+    int server_sockfd;
+    struct sockaddr_in server_addr;
+    char *filename = "client.txt";
+    FILE *fp = fopen(filename, "r");
+
+    // Creating a UDP socket
+    server_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (server_sockfd < 0)
     {
-        fprintf(stderr, "usage %s hostname port \n", argv[0]);
-        exit(0);
+        perror("[ERROR] socket error");
+        exit(1);
     }
-    portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
-        error("ERROR opening socket");
-    server = gethostbyname(argv[1]);
-    if (server == NULL)
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = port;
+    server_addr.sin_addr.s_addr = inet_addr(ip);
+
+    // Reading the text file
+    if (fp == NULL)
     {
-        fprintf(stderr, "ERROR, no such host \n");
-        exit(0);
+        perror("[ERROR] reading the file");
+        exit(1);
     }
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr,
-          (char *)&serv_addr.sin_addr.s_addr,
-          server->h_length);
-    serv_addr.sin_port = htons(portno);
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-        error("ERROR connecting");
-    printf("Please enter the message: ");
-    bzero(buffer, 256);
-    fgets(buffer, 255, stdin);
-    n = write(sockfd, buffer, strlen(buffer));
-    if (n < 0)
-        error("ERROR writing to socket");
-    bzero(buffer, 256);
-    n = read(sockfd, buffer, 255);
-    if (n < 0)
-        error("ERROR reading from socket");
-    printf("%s \n", buffer);
-    close(sockfd);
+
+    // Sending the file data to the server
+    send_file_data(fp, server_sockfd, server_addr);
+
+    printf("[SUCCESS] Data transfer complete.\n");
+    printf("[CLOSING] Disconnecting from the server.\n");
+
+    close(server_sockfd);
+
     return 0;
 }
