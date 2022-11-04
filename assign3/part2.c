@@ -1,80 +1,113 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <sys/types.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
-#include <sys/wait.h>
-#include <pthread.h>
-#include <semaphore.h>
 
-sem_t mutex;
+#define SHM_SIZE 1024
 
+int start = 0;
 int main()
 {
-    // using semaphores.
-    int shmid;
-    int *shm;
-    int *s;
-    int i;
-    int pid;
-    int status;
+    int shmid, mode;
+    char *data;
+    key_t key = ftok("file.txt", 'R');
+    int fd;
+    pid_t child_a, child_b;
+    child_a = fork();
 
-    // create a shared memory segment
-    shmid = shmget(IPC_PRIVATE, 1 * sizeof(int), 0777 | IPC_CREAT);
-    if (shmid < 0)
+    if (child_a == 0)
     {
-        perror("shmget");
-        exit(1);
-    }
-    // attach the shared memory segment
-    shm = shmat(shmid, NULL, 0);
-    if (shm == (int *)-1)
-    {
-        perror("shmat");
-        exit(1);
-    }
-    // initialise the semaphore
-    sem_init(&mutex, 0, 1);
-    // create a child process
-    pid = fork();
-    if (pid < 0)
-    {
-        perror("fork");
-        exit(1);
-    }
-    else if (pid == 0)
-    {
-        // child process
-        // for loop accessing the shared variable
-        sem_wait(&mutex);
-        printf("child process -\n");
-        for (i = 0; i < 10; i++)
+        //A
+        shmid = shmget(key, SHM_SIZE, 0666 | IPC_CREAT);
+        if (shmid == -1)
         {
-            *shm = *shm + 1;
-            printf("[child] value for iteration %d - %d\n", i, *shm);
+            perror("error at shmid");
+            exit(1);
         }
-        sem_post(&mutex);
-        exit(0);
+
+        for (int i = 1; i <= 10; i++)
+        {
+            data = shmat(shmid, (void *)0, 0);
+            if (data == (char *)(-1))
+            {
+                perror("error at shmat");
+                exit(1);
+            }
+            int val = atoi(data);
+            printf("A: %d\n [iteration : %d]", val, i);
+            sprintf(data, "%d", val);
+            val++;
+        }
+        if (shmdt(data) == -1)
+        {
+            perror("shmdt");
+            exit(1);
+        }
     }
     else
     {
-        // parent process
-        sleep(1);
-        printf("parent process -\n");
-        // for loop accessing the shared variable decrementing the shared variable
-        sem_wait(&mutex);
-        for (i = 0; i < 10; i++)
+        // B
+        child_b = fork();
+
+        if (child_b == 0)
         {
-            *shm = *shm - 1;
-            printf("[parent] value for iteration %d - %d\n", i, *shm);
+            shmid = shmget(key, SHM_SIZE, 0666 | IPC_CREAT);
+            if (shmid == -1)
+            {
+                perror("shmid");
+                exit(1);
+            }
+            for (int i = 1; i <= 10; i++)
+            {
+                data = shmat(shmid, (void *)0, 0);
+                if (data == (char *)(-1))
+                {
+                    perror("shmat");
+                    exit(1);
+                }
+                int val = atoi(data);
+                printf("B: %d\n [iteration : %d]", val, i);
+                val--;
+                sprintf(data, "%d", val);
+            }
+
+            if (shmdt(data) == -1)
+            {
+                perror("shmdt");
+                exit(1);
+            }
         }
-        sem_post(&mutex);
-        // wait for the child process to finish
-        wait(&status);
+        else
+        {
+            // Parent
+            sleep(2);
+            shmid = shmget(key, SHM_SIZE, 0666 | IPC_CREAT);
+            if (shmid == -1)
+            {
+                perror("shmid");
+                exit(1);
+            }
+            // synchronize the parent and child processes
+            wait(NULL);
+            wait(NULL);
+            data = shmat(shmid, (void *)0, 0);
+            if (data == (char *)(-1))
+            {
+                perror("shmat");
+                exit(1);
+            }
+            printf("The value of the shared memory is %s \n", data);
+            if (shmctl(shmid, IPC_RMID, NULL) == -1)
+            {
+                perror("shmctl");
+                exit(1);
+            }
+        }
     }
-    // detach the shared memory segment
-    shmdt(shm);
-    // remove the shared memory segment
-    shmctl(shmid, IPC_RMID, NULL);
     return 0;
 }

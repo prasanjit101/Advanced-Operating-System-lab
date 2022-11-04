@@ -5,6 +5,9 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
+#include <utmp.h>
+#include <sys/utsname.h>
+#include <sys/types.h>
 
 #define LINE 260
 #define TYPE 296

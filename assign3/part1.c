@@ -96,7 +96,7 @@ int main()
                 perror("shmat");
                 exit(1);
             }
-            printf("Race Condition Encountered\nValue: %s\n", data);
+            printf("\nRace Condition Encountered\nValue: %s\n", data);
             if (shmdt(data) == -1)
             {
                 perror("shmdt");
