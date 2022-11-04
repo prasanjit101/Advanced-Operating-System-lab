@@ -1,84 +1,103 @@
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <signal.h>
-#include <unistd.h>
-#include <pthread.h>
 #include <stdlib.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/stat.h>
-#include <errno.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <semaphore.h>
 
-#define MAX_SEND_BUF 1600
+#define PORT_NO 8888
+#define BUFFER_SIZE 1024
+#define CONNECTION_NUMBER 10
 
-char msg[1000];
-long data_len;
-int sockfd;
-struct sockaddr_in serv_addr, client_address;
-int cli_len = sizeof(client_address);
-char *newfile;
+int thread_count = 0;
+sem_t mutex;
 
-void con_handler(int sockfd)
+void *connection_handler(void *socket_desc)
 {
-    int fd;
-    mode_t mode = S_IRWXU | S_IRWXG | S_IRWXO;
-    char send_buff[MAX_SEND_BUF];
-    if ((fd = open(newfile, O_RDONLY, 0644)) < 0)
+    int request;
+    char client_reply[BUFFER_SIZE];
+
+    int sock = *((int *)socket_desc);
+    request = recv(sock, client_reply, BUFFER_SIZE, 0);
+
+    sem_wait(&mutex);
+    thread_count++;
+
+    sem_post(&mutex);
+
+    if (request < 0)
     {
-        printf("Error in opening file\n");
-        exit(1);
+        puts("Recv failed");
     }
+    else if (request = 0)
+        puts("Client disconnected unexpectedly.");
+
     else
     {
-        int bytes_read;
-        while ((bytes_read = read(fd, send_buff, MAX_SEND_BUF)) > 0)
+        // message received
+        sem_wait(&mutex);
+        if (client_reply == "hello")
         {
-            sendto(sockfd, send_buff, bytes_read, 0, (struct sockaddr *)&client_address, sizeof(client_address));
+            strcpy(client_reply, "Hi");
+            send(sock, client_reply, strlen(client_reply), 0);
         }
-        printf("File sent successfully from thread id %ld\n", pthread_self());
-        close(fd);
+        sem_post(&mutex);
     }
+
+    free(socket_desc);
+    close(sock);
+    sem_wait(&mutex);
+    thread_count--;
+    sem_post(&mutex);
+    pthread_exit(NULL);
 }
 
 int main(int argc, char *argv[])
 {
-    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd == -1)
+    sem_init(&mutex, 0, 1);
+    int socket_desc, new_socket, c, *new_sock;
+    struct sockaddr_in server, client;
+    char *ip = "127.0.0.1";
+
+    socket_desc = socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_desc == -1)
     {
-        printf("Error calling Socket");
-        exit(1);
+        puts("couldnot create socket.");
+        return 1;
     }
 
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    serv_addr.sin_port = htons(8000);
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = inet_addr(ip);
+    server.sin_port = htons(PORT_NO);
 
-    if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    if (bind(socket_desc, (struct sockaddr *)&server, sizeof(server)) < 0)
     {
-        printf("error binding");
-        exit(1);
+        puts("Binding failed");
+        return 1;
     }
 
-    while (1)
+    listen(socket_desc, 20);
+    puts("waiting for incoming connection..");
+    c = sizeof(struct sockaddr_in);
+    while ((new_socket = accept(socket_desc, (struct sockaddr *)&client, (socklen_t *)&c)))
     {
-        data_len = recvfrom(sockfd, (char *)msg, sizeof(msg), 0, (struct sockaddr *)&client_address, (socklen_t *)&cli_len);
-        newfile = msg;
-        if (data_len)
+        puts("Connection established\n");
+
+        pthread_t sniffer_thread;
+        new_sock = malloc(1);
+        *new_sock = new_socket;
+
+        if (pthread_create(&sniffer_thread, NULL, connection_handler, (void *)new_sock) < 0)
         {
-            printf("\n\nClient connected to Multithread connectionless server\n");
-            printf("File name recieved: %s\n", msg);
-        }
-        pthread_t child;
-        if (pthread_create(&child, NULL, (void *)con_handler, (void *)(intptr_t)sockfd) < 0)
-        {
-            printf("Error creating thread\n");
-            exit(1);
+            puts("could not create thread");
+            return 1;
         }
     }
+
+    return 0;
 }
+
+// command to run
+// gcc server.c -o server -lpthread
