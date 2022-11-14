@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <semaphore.h>
 
 #define SHM_SIZE 1024
 
